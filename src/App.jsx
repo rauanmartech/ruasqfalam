@@ -1,8 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate, Link } from 'react-router-dom';
 import { Gem, Hotel, ShoppingCart, ArrowRight, X, Lock, LogOut, CheckCircle, Clock, Trash2, AlertTriangle, Play, RefreshCw, Trophy, Info, PlusCircle, UserPlus, Download } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { supabase } from './supabase';
+import { cache } from './cache';
+
+const CACHE_KEY_TICKETS = 'rifa_tickets';
+const CACHE_KEY_RESERVED = 'rifa_reserved';
+const CACHE_TTL = 60_000; // 60 s
 import MainLogo from '../assets/logo-main.png';
 import SecondaryLogo from '../assets/logo-secondary.png';
 import PartnerPousada from '../assets/partner-pousada.png';
@@ -241,8 +246,8 @@ function SlotMachine({ winners, isSpinning, currentNumbers }) {
 }
 
 function AdminPage() {
-  const [tickets, setTickets] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [tickets, setTickets] = useState(() => cache.get(CACHE_KEY_TICKETS) ?? []);
+  const [loading, setLoading] = useState(!cache.get(CACHE_KEY_TICKETS));
   const [user, setUser] = useState(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -255,31 +260,81 @@ function AdminPage() {
 
   const [manualEntry, setManualEntry] = useState({ numero: '', nome: '', telefone: '', pago: true });
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => { setUser(session?.user ?? null); if (session?.user) fetchTickets(); });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { setUser(session?.user ?? null); if (session?.user) fetchTickets(); });
-    return () => subscription.unsubscribe();
+  const fetchTickets = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    const { data } = await supabase.from('rifa_numeros').select('*').order('created_at', { ascending: false });
+    if (data) {
+      cache.set(CACHE_KEY_TICKETS, data, CACHE_TTL);
+      cache.invalidate(CACHE_KEY_RESERVED); // keep reserved cache in sync
+      setTickets(data);
+    }
+    if (!silent) setLoading(false);
   }, []);
 
-  async function fetchTickets() { setLoading(true); const { data } = await supabase.from('rifa_numeros').select('*').order('created_at', { ascending: false }); if (data) setTickets(data); setLoading(false); }
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      if (session?.user) fetchTickets();
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) fetchTickets();
+    });
+    return () => subscription.unsubscribe();
+  }, [fetchTickets]);
+
+  // Realtime subscription — updates silently without full reload
+  useEffect(() => {
+    const channel = supabase
+      .channel('admin-tickets')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rifa_numeros' }, () => {
+        fetchTickets(true);
+      })
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [fetchTickets]);
   const handleLogin = async (e) => { e.preventDefault(); const { error } = await supabase.auth.signInWithPassword({ email, password }); if (error) setModal({ isOpen: true, title: 'Erro Login', message: error.message, type: 'danger', onConfirm: () => setModal({ ...modal, isOpen: false }) }); };
-  const markAsPaid = async (id) => { await supabase.from('rifa_numeros').update({ status: 'pago' }).eq('id', id); fetchTickets(); };
-  const askToDelete = (ticket) => { setModal({ isOpen: true, title: 'Quer apagar?', message: `Número ${ticket.numero}.`, type: 'danger', onConfirm: async () => { await supabase.from('rifa_numeros').delete().eq('id', ticket.id); setModal({ ...modal, isOpen: false }); fetchTickets(); }, onCancel: () => setModal({ ...modal, isOpen: false }), confirmText: 'Apagar', cancelText: 'Voltar' }); };
-  const resetRaffle = () => { 
-    setModal({ 
-      isOpen: true, 
-      title: 'RECOMEÇAR TUDO?', 
-      message: 'Esta ação irá apagar os atuais ganhadores e limpar o painel. Tem certeza absoluta que deseja iniciar um novo ciclo de sorteio?', 
-      type: 'warning', 
-      onConfirm: async () => { 
-        await supabase.from('rifa_numeros').update({ sorteado: 0 }).neq('id', '00000000-0000-0000-0000-000000000000'); 
-        setModal({ ...modal, isOpen: false }); 
-        fetchTickets(); 
-      }, 
-      onCancel: () => setModal({ ...modal, isOpen: false }), 
-      confirmText: 'SIM, LIMPAR!', 
-      cancelText: 'VOLTAR' 
-    }); 
+  // Optimistic: flip status locally, then persist
+  const markAsPaid = async (id) => {
+    setTickets(prev => prev.map(t => t.id === id ? { ...t, status: 'pago' } : t));
+    const { error } = await supabase.from('rifa_numeros').update({ status: 'pago' }).eq('id', id);
+    if (error) fetchTickets(); // rollback on error
+    else cache.invalidate(CACHE_KEY_TICKETS);
+  };
+
+  // Optimistic: remove locally, then persist
+  const askToDelete = (ticket) => {
+    setModal({
+      isOpen: true, title: 'Quer apagar?', message: `Número ${ticket.numero}.`, type: 'danger',
+      onConfirm: async () => {
+        setModal(m => ({ ...m, isOpen: false }));
+        setTickets(prev => prev.filter(t => t.id !== ticket.id));
+        const { error } = await supabase.from('rifa_numeros').delete().eq('id', ticket.id);
+        if (error) fetchTickets(); // rollback
+        else cache.invalidate(CACHE_KEY_TICKETS);
+      },
+      onCancel: () => setModal(m => ({ ...m, isOpen: false })),
+      confirmText: 'Apagar', cancelText: 'Voltar'
+    });
+  };
+  const resetRaffle = () => {
+    setModal({
+      isOpen: true,
+      title: 'RECOMEÇAR TUDO?',
+      message: 'Esta ação irá apagar os atuais ganhadores e limpar o painel. Tem certeza absoluta que deseja iniciar um novo ciclo de sorteio?',
+      type: 'warning',
+      onConfirm: async () => {
+        // Optimistic: clear sorteado locally
+        setTickets(prev => prev.map(t => ({ ...t, sorteado: 0 })));
+        setModal(m => ({ ...m, isOpen: false }));
+        const { error } = await supabase.from('rifa_numeros').update({ sorteado: 0 }).neq('id', '00000000-0000-0000-0000-000000000000');
+        if (error) fetchTickets();
+        else cache.invalidate(CACHE_KEY_TICKETS);
+      },
+      onCancel: () => setModal(m => ({ ...m, isOpen: false })),
+      confirmText: 'SIM, LIMPAR!',
+      cancelText: 'VOLTAR'
+    });
   };
 
   const startDraw = async () => {
@@ -311,7 +366,19 @@ function AdminPage() {
     let n = 0; spinInterval.current = setInterval(() => { n++; setCurrentNumbers([n > 25 ? winners[0].numero : paidNumbers[Math.floor(Math.random()*paidNumbers.length)], n > 30 ? winners[1].numero : paidNumbers[Math.floor(Math.random()*paidNumbers.length)], n > 35 ? winners[2].numero : paidNumbers[Math.floor(Math.random()*paidNumbers.length)]]); if (n >= 40) { clearInterval(spinInterval.current); finishDraw(winners); } }, 80);
   };
 
-  async function finishDraw(winners) { for (let i = 0; i < winners.length; i++) { await supabase.from('rifa_numeros').update({ sorteado: i+1 }).eq('id', winners[i].id); } setIsSpinning(false); fetchTickets(); }
+  async function finishDraw(winners) {
+    // Optimistic: apply sorteado immediately
+    setTickets(prev => prev.map(t => {
+      const idx = winners.findIndex(w => w.id === t.id);
+      return idx >= 0 ? { ...t, sorteado: idx + 1 } : t;
+    }));
+    setIsSpinning(false);
+    for (let i = 0; i < winners.length; i++) {
+      await supabase.from('rifa_numeros').update({ sorteado: i + 1 }).eq('id', winners[i].id);
+    }
+    cache.invalidate(CACHE_KEY_TICKETS);
+    fetchTickets(true);
+  }
 
   const downloadGrid = async () => {
     if (!gridRef.current) return;
@@ -327,7 +394,32 @@ function AdminPage() {
     link.click();
   };
 
-  const handlesManual = async (e) => { e.preventDefault(); const { error } = await supabase.from('rifa_numeros').insert([{ numero: parseInt(manualEntry.numero), nome: manualEntry.nome, telefone: manualEntry.telefone, status: manualEntry.pago ? 'pago' : 'reservado' }]); if (error) { setModal({ isOpen: true, title: 'Erro', message: 'Ocupado.', type: 'danger', onConfirm: () => setModal({ ...modal, isOpen: false }) }); } else { setManualEntry({ numero: '', nome: '', telefone: '', pago: true }); fetchTickets(); } };
+  const handlesManual = async (e) => {
+    e.preventDefault();
+    const newTicket = {
+      id: `temp-${Date.now()}`,
+      numero: parseInt(manualEntry.numero),
+      nome: manualEntry.nome,
+      telefone: manualEntry.telefone,
+      status: manualEntry.pago ? 'pago' : 'reservado',
+      sorteado: 0,
+      created_at: new Date().toISOString(),
+    };
+    // Optimistic: add to list immediately
+    setTickets(prev => [newTicket, ...prev]);
+    setManualEntry({ numero: '', nome: '', telefone: '', pago: true });
+    const { error } = await supabase.from('rifa_numeros').insert([{
+      numero: newTicket.numero, nome: newTicket.nome,
+      telefone: newTicket.telefone, status: newTicket.status
+    }]);
+    if (error) {
+      setTickets(prev => prev.filter(t => t.id !== newTicket.id)); // rollback
+      setModal({ isOpen: true, title: 'Erro', message: 'Número ocupado.', type: 'danger', onConfirm: () => setModal(m => ({ ...m, isOpen: false })) });
+    } else {
+      cache.invalidate(CACHE_KEY_TICKETS);
+      fetchTickets(true);
+    }
+  };
 
   const availableNumbers = Array.from({ length: 100 }, (_, i) => i + 1).filter(n => !tickets.map(t => t.numero).includes(n));
   const winnersSortedByDraw = tickets.filter(t => t.sorteado > 0).sort((a,b) => a.sorteado - b.sorteado);
@@ -523,26 +615,58 @@ function LandingPage() {
   const TICKET_PRICE = 5;
   const totalAmount = (selectedNumbers.length * TICKET_PRICE).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
   
-  useEffect(() => { fetchReserved(); }, []);
-  async function fetchReserved() { 
-    try { 
-      const { data } = await supabase.from('rifa_numeros').select('numero').eq('status', 'pago'); 
-      if (data) setReservedNumbers(data.map(r => r.numero)); 
-    } catch (err) { } 
-  }
+  const fetchReserved = useCallback(async (silent = false) => {
+    const cached = cache.get(CACHE_KEY_RESERVED);
+    if (cached) { setReservedNumbers(cached); return; }
+    try {
+      const { data } = await supabase.from('rifa_numeros').select('numero').eq('status', 'pago');
+      if (data) {
+        const nums = data.map(r => r.numero);
+        cache.set(CACHE_KEY_RESERVED, nums, CACHE_TTL);
+        setReservedNumbers(nums);
+      }
+    } catch (_) {}
+  }, []);
+
+  useEffect(() => {
+    fetchReserved();
+    // Realtime: keep reserved numbers up to date for visitors
+    const channel = supabase
+      .channel('reserved-numbers')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rifa_numeros' }, () => {
+        cache.invalidate(CACHE_KEY_RESERVED);
+        fetchReserved();
+      })
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [fetchReserved]);
 
   const handleConfirm = async (name, phone) => {
     try {
-      const inserts = selectedNumbers.map(n => ({ numero: n, nome: name, telefone: phone, status: 'reservado' }));
+      // Optimistic: mark selected numbers as reserved immediately
+      setReservedNumbers(prev => [...new Set([...prev, ...selectedNumbers])]);
+      setIsCheckoutOpen(false);
+      const prevSelected = [...selectedNumbers];
+      setSelectedNumbers([]);
+
+      const inserts = prevSelected.map(n => ({ numero: n, nome: name, telefone: phone, status: 'reservado' }));
       const { error } = await supabase.from('rifa_numeros').insert(inserts);
-      if (error) { setModal({ isOpen: true, title: 'Ops!', message: 'Ocupados. Atualizando...', type: 'warning', onConfirm: () => { setModal({ ...modal, isOpen: false }); fetchReserved(); } }); return; }
-      const formatted = selectedNumbers.map(n => n.toString().padStart(2, '0')).join(', ');
+      if (error) {
+        // Rollback optimistic update
+        setReservedNumbers(prev => prev.filter(n => !prevSelected.includes(n)));
+        setSelectedNumbers(prevSelected);
+        setIsCheckoutOpen(true);
+        setModal({ isOpen: true, title: 'Ops!', message: 'Números ocupados. Tente outros.', type: 'warning', onConfirm: () => { setModal(m => ({ ...m, isOpen: false })); cache.invalidate(CACHE_KEY_RESERVED); fetchReserved(); } });
+        return;
+      }
+      cache.invalidate(CACHE_KEY_RESERVED);
+      const formatted = prevSelected.map(n => n.toString().padStart(2, '0')).join(', ');
       const whatsappMessage = `✨ NOVO PEDIDO DE RIFA - RUAS QUE FALAM ✨\n\n👤 Nome: ${name}\n🔢 Números: [${formatted}]\n💰 Total: R$ ${totalAmount}\n\nOlá! Gostaria de confirmar minha participação na Rifa das Minas e realizar o pagamento dos números acima. Como posso proceder?`;
-      // Safari bloqueia window.open em callbacks async. Usar location.href é a solução mais segura para iOS.
       const waUrl = `https://wa.me/553592682791?text=${encodeURIComponent(whatsappMessage)}`;
       window.location.href = waUrl;
-      setIsCheckoutOpen(false); setSelectedNumbers([]); fetchReserved();
-    } catch (err) { setModal({ isOpen: true, title: 'Erro', message: 'Falha.', type: 'danger', onConfirm: () => setModal({ ...modal, isOpen: false }) }); }
+    } catch (err) {
+      setModal({ isOpen: true, title: 'Erro', message: 'Falha na conexão.', type: 'danger', onConfirm: () => setModal(m => ({ ...m, isOpen: false })) });
+    }
   };
 
   return (
