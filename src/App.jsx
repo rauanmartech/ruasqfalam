@@ -3,11 +3,11 @@ import { BrowserRouter as Router, Routes, Route, useNavigate, Link } from 'react
 import { Gem, Hotel, ShoppingCart, ArrowRight, X, Lock, LogOut, CheckCircle, Clock, Trash2, AlertTriangle, Play, RefreshCw, Trophy, Info, PlusCircle, UserPlus, Download } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { supabase } from './supabase';
-import MainLogo from '../assets/Ruas que falam.png';
-import SecondaryLogo from '../assets/Mulheres em cena.png';
-import PartnerPousada from '../assets/Pousada dos Ofícios.png';
-import PartnerDaphine from '../assets/Daphine Ateliê.png';
-import PartnerBrecho from '../assets/Brechó das Anas.png';
+import MainLogo from '../assets/logo-main.png';
+import SecondaryLogo from '../assets/logo-secondary.png';
+import PartnerPousada from '../assets/partner-pousada.png';
+import PartnerDaphine from '../assets/partner-daphine.png';
+import PartnerBrecho from '../assets/partner-brecho.png';
 
 // --- Shared Components ---
 
