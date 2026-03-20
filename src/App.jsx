@@ -379,7 +379,15 @@ function AdminPage() {
            <h2 className="font-sans font-black text-lg uppercase">PAINEL ADMIN</h2>
            <div className="flex gap-2">
              <button 
-               onClick={async () => { await supabase.auth.signOut(); setUser(null); }} 
+               onClick={async () => { 
+                 try { 
+                   await supabase.auth.signOut(); 
+                 } catch (e) { 
+                   console.error('Logout error:', e); 
+                 } finally { 
+                   setUser(null); 
+                 } 
+               }} 
                className="bg-[#ff3b30] p-2 border-2 border-white active:translate-y-1 transition-all" 
                title="Sair"
              >
@@ -530,7 +538,9 @@ function LandingPage() {
       if (error) { setModal({ isOpen: true, title: 'Ops!', message: 'Ocupados. Atualizando...', type: 'warning', onConfirm: () => { setModal({ ...modal, isOpen: false }); fetchReserved(); } }); return; }
       const formatted = selectedNumbers.map(n => n.toString().padStart(2, '0')).join(', ');
       const whatsappMessage = `✨ NOVO PEDIDO DE RIFA - RUAS QUE FALAM ✨\n\n👤 Nome: ${name}\n🔢 Números: [${formatted}]\n💰 Total: R$ ${totalAmount}\n\nOlá! Gostaria de confirmar minha participação na Rifa das Minas e realizar o pagamento dos números acima. Como posso proceder?`;
-      window.open(`https://wa.me/553592682791?text=${encodeURIComponent(whatsappMessage)}`, '_blank');
+      // Safari bloqueia window.open em callbacks async. Usar location.href é a solução mais segura para iOS.
+      const waUrl = `https://wa.me/553592682791?text=${encodeURIComponent(whatsappMessage)}`;
+      window.location.href = waUrl;
       setIsCheckoutOpen(false); setSelectedNumbers([]); fetchReserved();
     } catch (err) { setModal({ isOpen: true, title: 'Erro', message: 'Falha.', type: 'danger', onConfirm: () => setModal({ ...modal, isOpen: false }) }); }
   };
