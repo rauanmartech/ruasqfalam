@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+    font-family: 'DonGraffiti';
+    src: url('../assets/DonGraffiti-wrYx.otf') format('opentype');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+@layer base {
+    body {
+        background-color: theme('colors.pop-beige');
+        color: theme('colors.pop-dark');
+        font-family: theme('fontFamily.sans');
+        text-transform: uppercase;
+        min-height: 100vh;
+        background-image: radial-gradient(#1d1e1c 1.5px, transparent 1.5px);
+        background-size: 24px 24px;
+        background-position: center;
+        -webkit-font-smoothing: antialiased;
+    }
+}
+
+@keyframes scroll {
+    0% {
+        transform: translateX(0);
+    }
+
+    100% {
+        transform: translateX(-50%);
+    }
+}
+
+.animate-scroll {
+    display: flex;
+    width: max-content;
+    animation: scroll 20s linear infinite;
+}
+
+.animate-scroll:hover {
+    animation-play-state: paused;
+}
