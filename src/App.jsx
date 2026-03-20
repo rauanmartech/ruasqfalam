@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate, Link } from 'react-router-dom';
-import { Gem, Hotel, ShoppingCart, ArrowRight, X, Lock, LogOut, CheckCircle, Clock, Trash2, AlertTriangle, Play, RefreshCw, Trophy, Info, PlusCircle, UserPlus, Download } from 'lucide-react';
+import { Gem, Hotel, ShoppingCart, ArrowRight, X, Lock, LogOut, CheckCircle, Clock, Trash2, AlertTriangle, Play, RefreshCw, Trophy, Info, PlusCircle, UserPlus, Download, Search } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { supabase } from './supabase';
 import { cache } from './cache';
@@ -260,6 +260,27 @@ function AdminPage() {
 
   const [manualEntry, setManualEntry] = useState({ numero: '', nome: '', telefone: '', pago: true });
 
+  // Search state
+  const [searchMode, setSearchMode] = useState('numero'); // 'numero' | 'nome'
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Pagination state (reset to 0 when tickets change)
+  const [reservaPage, setReservaPage] = useState(0);
+  const [pagoPage, setPagoPage] = useState(0);
+  const PAGE_SIZE = 10;
+
+  const searchResults = React.useMemo(() => {
+    const q = searchQuery.trim();
+    if (!q) return [];
+    if (searchMode === 'numero') {
+      const num = parseInt(q, 10);
+      if (isNaN(num)) return [];
+      return tickets.filter(t => t.numero === num);
+    } else {
+      return tickets.filter(t => t.nome?.toLowerCase().includes(q.toLowerCase()));
+    }
+  }, [searchQuery, searchMode, tickets]);
+
   const fetchTickets = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     const { data } = await supabase.from('rifa_numeros').select('*').order('created_at', { ascending: false });
@@ -489,6 +510,127 @@ function AdminPage() {
            </div>
         </div>
 
+        {/* Search Section */}
+        <div className="mb-8 bg-pop-white border-4 border-pop-dark p-5 shadow-pop">
+          <div className="flex items-center gap-3 mb-4">
+            <Search className="text-pop-pink" size={22} />
+            <h3 className="font-sans font-black uppercase">BUSCAR PARTICIPANTE</h3>
+          </div>
+
+          {/* Mode toggle */}
+          <div className="flex mb-4 border-2 border-pop-dark overflow-hidden">
+            <button
+              onClick={() => { setSearchMode('numero'); setSearchQuery(''); }}
+              className={`flex-1 py-2 font-black text-xs uppercase transition-all ${
+                searchMode === 'numero' ? 'bg-pop-dark text-white' : 'bg-pop-beige text-pop-dark hover:bg-pop-beige/60'
+              }`}
+            >
+              Por Número
+            </button>
+            <button
+              onClick={() => { setSearchMode('nome'); setSearchQuery(''); }}
+              className={`flex-1 py-2 font-black text-xs uppercase transition-all ${
+                searchMode === 'nome' ? 'bg-pop-dark text-white' : 'bg-pop-beige text-pop-dark hover:bg-pop-beige/60'
+              }`}
+            >
+              Por Nome
+            </button>
+          </div>
+
+          {/* Input */}
+          <div className="relative flex gap-2">
+            <input
+              type={searchMode === 'numero' ? 'number' : 'text'}
+              min={searchMode === 'numero' ? 1 : undefined}
+              max={searchMode === 'numero' ? 100 : undefined}
+              placeholder={searchMode === 'numero' ? 'Digite o número (1-100)' : 'Digite o nome da pessoa'}
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="flex-1 bg-pop-beige border-2 border-pop-dark p-3 font-sans font-bold text-sm outline-none focus:ring-4 ring-pop-pink/20"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="bg-pop-dark text-white p-3 border-2 border-pop-dark active:translate-y-0.5"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+
+          {/* Results */}
+          {searchQuery.trim() && (
+            <div className="mt-4">
+              {searchResults.length === 0 ? (
+                <p className="font-sans font-black text-xs uppercase opacity-40 text-center py-4">
+                  Nenhum resultado encontrado
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  <span className="font-sans font-black text-[0.6rem] uppercase tracking-widest opacity-50 block mb-2">
+                    {searchResults.length} resultado{searchResults.length !== 1 ? 's' : ''}
+                  </span>
+                  {searchMode === 'nome' ? (
+                    // Grouped by name — show all numbers for matched person(s)
+                    (() => {
+                      const grouped = {};
+                      searchResults.forEach(t => {
+                        const key = t.nome;
+                        if (!grouped[key]) grouped[key] = { nome: t.nome, telefone: t.telefone, tickets: [] };
+                        grouped[key].tickets.push(t);
+                      });
+                      return Object.values(grouped).map(g => (
+                        <div key={g.nome} className="bg-pop-beige border-2 border-pop-dark p-4">
+                          <p className="font-sans font-black text-sm uppercase mb-0.5">{g.nome}</p>
+                          <p className="font-sans font-bold text-[0.65rem] opacity-60 mb-3">{g.telefone}</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {g.tickets.sort((a,b) => a.numero - b.numero).map(t => (
+                              <span
+                                key={t.id}
+                                className={`px-2 py-1 border-2 border-pop-dark font-black text-xs ${
+                                  t.status === 'pago' ? 'bg-pop-dark text-white' : 'bg-pop-orange text-white'
+                                }`}
+                              >
+                                #{t.numero.toString().padStart(2, '0')}
+                                <span className="ml-1 opacity-70 font-normal text-[0.55rem]">
+                                  {t.status === 'pago' ? '✓' : '⏳'}
+                                </span>
+                              </span>
+                            ))}
+                          </div>
+                          <p className="font-sans font-bold text-[0.6rem] opacity-50 uppercase mt-2">
+                            {g.tickets.length} número{g.tickets.length !== 1 ? 's' : ''} · R$ {g.tickets.length * 5},00
+                          </p>
+                        </div>
+                      ));
+                    })()
+                  ) : (
+                    // Searched by number — show the person
+                    searchResults.map(t => (
+                      <div key={t.id} className="bg-pop-beige border-2 border-pop-dark p-4 flex items-center justify-between">
+                        <div>
+                          <p className="font-sans font-black text-sm uppercase mb-0.5">{t.nome}</p>
+                          <p className="font-sans font-bold text-[0.65rem] opacity-60">{t.telefone}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={`px-2 py-1 border-2 border-pop-dark font-black text-xs ${
+                            t.status === 'pago' ? 'bg-pop-dark text-white' : 'bg-pop-orange text-white'
+                          }`}>
+                            #{t.numero.toString().padStart(2, '0')}
+                          </span>
+                          <span className="font-sans font-bold text-[0.55rem] uppercase opacity-50">
+                            {t.status === 'pago' ? 'Pago ✓' : 'Reservado ⏳'}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Saldo Section */}
         <div className="mb-8 bg-pop-dark text-white p-6 border-4 border-pop-dark shadow-[8px_8px_0_#ff9500] flex items-center justify-between relative overflow-hidden">
            <div className="absolute right-[-20px] top-[-20px] opacity-10 rotate-12"><Gem size={100} /></div>
@@ -550,10 +692,115 @@ function AdminPage() {
           )}
         </div>
 
-        <div className="space-y-10 mb-12">
-            <div><div className="flex items-center gap-3 mb-6 bg-pop-orange/20 p-2 border-2 border-pop-orange/40"><Clock className="text-pop-orange" size={20} /><h3 className="font-sans font-black text-sm uppercase">Reservas ({tickets.filter(t=>t.status==='reservado').length})</h3></div><div className="space-y-4">{tickets.filter(t=>t.status==='reservado').map(t=>(<div key={t.id} className="bg-pop-white border-2 border-pop-dark shadow-pop-sm p-4 relative"><div className="flex justify-between items-start mb-2"><span className="bg-pop-orange border-2 border-pop-dark text-white font-black px-2 py-0.5 text-xs">Nº {t.numero}</span><button onClick={()=>askToDelete(t)} className="text-[#ff3b30] p-1"><Trash2 size={18}/></button></div><p className="font-sans font-black text-sm uppercase mb-0.5">{t.nome}</p><p className="font-sans font-bold text-[0.65rem] opacity-60 mb-4">{t.telefone}</p><button onClick={()=>markAsPaid(t.id)} className="w-full bg-[#25D366] text-white border-2 border-pop-dark py-2 font-black text-[0.65rem] uppercase active:translate-y-1 shadow-pop-xs">Confirmar</button></div>))}</div></div>
-            <div><div className="flex items-center gap-3 mb-6 bg-pop-pink/10 p-2 border-2 border-pop-pink/20"><CheckCircle className="text-pop-pink" size={20} /><h3 className="font-sans font-black text-sm uppercase">Pagos ({tickets.filter(t=>t.status==='pago').length})</h3></div><div className="space-y-2">{tickets.filter(t=>t.status==='pago').map(t=>(<div key={t.id} className="bg-pop-white border-2 border-pop-dark py-2 px-4 flex justify-between items-center shadow-pop-xs"><div className="flex items-center gap-4"><span className="font-black text-pop-pink text-xs uppercase">#{t.numero}</span><span className="font-sans font-bold text-[0.65rem] uppercase truncate max-w-[120px]">{t.nome}</span></div><button onClick={()=>askToDelete(t)} className="text-[#ff3b30]/60 hover:text-[#ff3b30]"><Trash2 size={16}/></button></div>))}</div></div>
-        </div>
+        {/* ---- RESERVAS ---- */}
+        {(() => {
+          const reservados = tickets.filter(t => t.status === 'reservado');
+          const totalPagesR = Math.ceil(reservados.length / PAGE_SIZE);
+          const pageR = Math.min(reservaPage, Math.max(0, totalPagesR - 1));
+          const sliceR = reservados.slice(pageR * PAGE_SIZE, pageR * PAGE_SIZE + PAGE_SIZE);
+          return (
+            <div className="mb-10">
+              <div className="flex items-center gap-3 mb-6 bg-pop-orange/20 p-2 border-2 border-pop-orange/40">
+                <Clock className="text-pop-orange" size={20} />
+                <h3 className="font-sans font-black text-sm uppercase">Reservas ({reservados.length})</h3>
+              </div>
+              {reservados.length === 0 ? (
+                <p className="font-sans font-black text-xs uppercase opacity-40 text-center py-6">Nenhuma reserva ainda</p>
+              ) : (
+                <>
+                  <div className="space-y-4">
+                    {sliceR.map(t => (
+                      <div key={t.id} className="bg-pop-white border-2 border-pop-dark shadow-pop-sm p-4 relative">
+                        <div className="flex justify-between items-start mb-2">
+                          <span className="bg-pop-orange border-2 border-pop-dark text-white font-black px-2 py-0.5 text-xs">Nº {t.numero}</span>
+                          <button onClick={() => askToDelete(t)} className="text-[#ff3b30] p-1"><Trash2 size={18}/></button>
+                        </div>
+                        <p className="font-sans font-black text-sm uppercase mb-0.5">{t.nome}</p>
+                        <p className="font-sans font-bold text-[0.65rem] opacity-60 mb-4">{t.telefone}</p>
+                        <button onClick={() => markAsPaid(t.id)} className="w-full bg-[#25D366] text-white border-2 border-pop-dark py-2 font-black text-[0.65rem] uppercase active:translate-y-1 shadow-pop-xs">Confirmar</button>
+                      </div>
+                    ))}
+                  </div>
+                  {totalPagesR > 1 && (
+                    <div className="flex items-center justify-between mt-4 border-t-2 border-pop-dark/10 pt-4">
+                      <button
+                        onClick={() => setReservaPage(p => Math.max(0, p - 1))}
+                        disabled={pageR === 0}
+                        className="bg-pop-dark text-white border-2 border-pop-dark px-4 py-2 font-black text-xs uppercase disabled:opacity-30 active:translate-y-0.5 transition-all"
+                      >
+                        ← Anterior
+                      </button>
+                      <span className="font-sans font-black text-[0.65rem] uppercase opacity-60">
+                        {pageR + 1} / {totalPagesR}
+                      </span>
+                      <button
+                        onClick={() => setReservaPage(p => Math.min(totalPagesR - 1, p + 1))}
+                        disabled={pageR === totalPagesR - 1}
+                        className="bg-pop-dark text-white border-2 border-pop-dark px-4 py-2 font-black text-xs uppercase disabled:opacity-30 active:translate-y-0.5 transition-all"
+                      >
+                        Próximo →
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* ---- PAGOS ---- */}
+        {(() => {
+          const pagos = tickets.filter(t => t.status === 'pago');
+          const totalPagesP = Math.ceil(pagos.length / PAGE_SIZE);
+          const pageP = Math.min(pagoPage, Math.max(0, totalPagesP - 1));
+          const sliceP = pagos.slice(pageP * PAGE_SIZE, pageP * PAGE_SIZE + PAGE_SIZE);
+          return (
+            <div className="mb-12">
+              <div className="flex items-center gap-3 mb-6 bg-pop-pink/10 p-2 border-2 border-pop-pink/20">
+                <CheckCircle className="text-pop-pink" size={20} />
+                <h3 className="font-sans font-black text-sm uppercase">Pagos ({pagos.length})</h3>
+              </div>
+              {pagos.length === 0 ? (
+                <p className="font-sans font-black text-xs uppercase opacity-40 text-center py-6">Nenhum pago ainda</p>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    {sliceP.map(t => (
+                      <div key={t.id} className="bg-pop-white border-2 border-pop-dark py-2 px-4 flex justify-between items-center shadow-pop-xs">
+                        <div className="flex items-center gap-4">
+                          <span className="font-black text-pop-pink text-xs uppercase">#{t.numero}</span>
+                          <span className="font-sans font-bold text-[0.65rem] uppercase truncate max-w-[120px]">{t.nome}</span>
+                        </div>
+                        <button onClick={() => askToDelete(t)} className="text-[#ff3b30]/60 hover:text-[#ff3b30]"><Trash2 size={16}/></button>
+                      </div>
+                    ))}
+                  </div>
+                  {totalPagesP > 1 && (
+                    <div className="flex items-center justify-between mt-4 border-t-2 border-pop-dark/10 pt-4">
+                      <button
+                        onClick={() => setPagoPage(p => Math.max(0, p - 1))}
+                        disabled={pageP === 0}
+                        className="bg-pop-pink text-white border-2 border-pop-dark px-4 py-2 font-black text-xs uppercase disabled:opacity-30 active:translate-y-0.5 transition-all"
+                      >
+                        ← Anterior
+                      </button>
+                      <span className="font-sans font-black text-[0.65rem] uppercase opacity-60">
+                        {pageP + 1} / {totalPagesP}
+                      </span>
+                      <button
+                        onClick={() => setPagoPage(p => Math.min(totalPagesP - 1, p + 1))}
+                        disabled={pageP === totalPagesP - 1}
+                        className="bg-pop-pink text-white border-2 border-pop-dark px-4 py-2 font-black text-xs uppercase disabled:opacity-30 active:translate-y-0.5 transition-all"
+                      >
+                        Próximo →
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          );
+        })()}
 
         <div className="mb-12 flex flex-col gap-6">
            <button onClick={downloadGrid} className="w-full bg-pop-orange border-4 border-pop-dark py-4 px-6 font-black uppercase shadow-pop active:translate-y-1 flex items-center justify-center gap-3 text-lg"><Download size={24}/> BAIXAR TABELA PNG</button>
