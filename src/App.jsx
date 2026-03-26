@@ -155,7 +155,7 @@ function Prizes() {
   );
 }
 
-function RaffleSection({ selectedNumbers, reservedNumbers, onToggleNumber }) {
+function RaffleSection({ selectedNumbers, reservedMap, onToggleNumber }) {
   const allNumbers = Array.from({ length: 100 }, (_, i) => i + 1);
   return (
     <section id="raffle-section" className="px-5 py-16 flex flex-col items-center relative z-10 w-full bg-pop-white border-y-pop border-pop-dark shadow-[inset_0_10px_0_#1d1e1c]">
@@ -170,21 +170,35 @@ function RaffleSection({ selectedNumbers, reservedNumbers, onToggleNumber }) {
         </div>
 
         <div id="raffle-grid-container" className="w-full bg-pop-beige border-pop border-pop-dark p-4 shadow-[12px_12px_0_#1d1e1c] relative">
-          <div className="flex justify-between mb-6 font-sans font-black text-[0.55rem] border-b-2 border-pop-dark pb-3 uppercase tracking-tighter">
-             <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 bg-pop-white border-2 border-pop-dark"></div> LIVRE</div>
-             <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 bg-pop-orange border-2 border-pop-dark"></div> ESCOLHIDO</div>
-             <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 bg-pop-dark border-2 border-pop-dark"></div> RESERVADO / PAGO</div>
+          <div className="flex justify-between mb-6 font-sans font-black text-[0.45rem] border-b-2 border-pop-dark pb-3 uppercase tracking-tighter gap-1">
+             <div className="flex items-center gap-1"><div className="w-3 h-3 bg-pop-white border-2 border-pop-dark"></div> LIVRE</div>
+             <div className="flex items-center gap-1"><div className="w-3 h-3 bg-pop-pink border-2 border-pop-dark"></div> ESCOLHIDO</div>
+             <div className="flex items-center gap-1"><div className="w-3 h-3 bg-pop-orange border-2 border-pop-orange/40"></div> RESERVADO</div>
+             <div className="flex items-center gap-1"><div className="w-3 h-3 bg-pop-dark border-2 border-pop-dark/10"></div> PAGO</div>
           </div>
           <div className="grid grid-cols-10 gap-1.5 w-full">
             {allNumbers.map((n) => {
               const isSelected = selectedNumbers.includes(n);
-              const isReserved = reservedNumbers.includes(n);
+              const status = reservedMap[n];
+              const isReserved = !!status;
+
+              let btnClass = "aspect-square flex items-center justify-center text-[0.65rem] font-black transition-all duration-100 active:scale-90 ";
+              if (status === 'pago') {
+                btnClass += "bg-pop-dark text-white opacity-40 cursor-not-allowed shadow-none border-2 border-pop-dark/10";
+              } else if (status === 'reservado') {
+                btnClass += "bg-pop-orange text-white border-2 border-pop-orange/40 cursor-not-allowed shadow-none";
+              } else if (isSelected) {
+                btnClass += "bg-pop-pink text-white scale-110 -translate-y-1 shadow-pop-sm z-10 border-2 border-pop-dark";
+              } else {
+                btnClass += "bg-pop-white border-2 border-pop-dark hover:bg-pop-orange/30 shadow-none text-pop-dark";
+              }
+
               return (
                 <button
                   key={n}
                   onClick={() => !isReserved && onToggleNumber(n)}
                   disabled={isReserved}
-                  className={`aspect-square flex items-center justify-center text-[0.65rem] font-black border-2 border-pop-dark transition-all duration-100 active:scale-90 ${isReserved ? 'bg-pop-dark text-white opacity-40 cursor-not-allowed shadow-none' : isSelected ? 'bg-pop-orange scale-110 -translate-y-1 shadow-[4px_4px_0_#1d1e1c] z-10' : 'bg-pop-white hover:bg-pop-orange/30 shadow-none'}`}
+                  className={btnClass}
                 >
                   {n.toString().padStart(2, '0')}
                 </button>
@@ -831,13 +845,18 @@ function AdminPage() {
                 <div className="grid grid-cols-10 gap-4 mb-10">
                   {Array.from({ length: 100 }, (_, i) => i + 1).map(n => {
                     const status = tickets.find(t => t.numero === n)?.status || 'livre';
-                    return (<div key={n} className={`w-16 h-16 border-[5px] border-pop-dark flex items-center justify-center font-black text-2xl shadow-none ${status === 'pago' ? 'bg-pop-dark text-white' : status === 'reservado' ? 'bg-pop-orange text-white' : 'bg-pop-white text-pop-dark'}`}>{n.toString().padStart(2, '0')}</div>);
+                    let cellClass = "w-16 h-16 border-[5px] flex items-center justify-center font-black text-2xl shadow-none ";
+                    if (status === 'pago') cellClass += "bg-pop-dark text-white border-pop-dark/10";
+                    else if (status === 'reservado') cellClass += "bg-pop-orange text-white border-pop-orange/40";
+                    else cellClass += "bg-pop-white text-pop-dark border-pop-dark";
+                    
+                    return (<div key={n} className={cellClass}>{n.toString().padStart(2, '0')}</div>);
                   })}
                 </div>
                 <div className="flex justify-center gap-14 font-black text-xl uppercase pt-8 border-t-[8px] border-pop-dark">
                    <div className="flex items-center gap-4"><div className="w-8 h-8 bg-pop-white border-[5px] border-pop-dark shadow-pop-xs"></div> Livre</div>
-                   <div className="flex items-center gap-3"><div className="w-8 h-8 bg-pop-orange border-[5px] border-pop-dark shadow-pop-xs"></div> Reservado</div>
-                   <div className="flex items-center gap-3"><div className="w-8 h-8 bg-pop-dark border-[5px] border-pop-dark shadow-pop-xs"></div> Pago</div>
+                   <div className="flex items-center gap-3"><div className="w-8 h-8 bg-pop-orange border-[5px] border-pop-orange/40 shadow-none"></div> Reservado</div>
+                   <div className="flex items-center gap-3"><div className="w-8 h-8 bg-pop-dark border-[5px] border-pop-dark/10 shadow-none"></div> Pago</div>
                 </div>
              </div>
              <div className="mt-16 flex flex-col items-center gap-4">
@@ -856,7 +875,7 @@ function AdminPage() {
 
 function LandingPage() {
   const [selectedNumbers, setSelectedNumbers] = useState([]);
-  const [reservedNumbers, setReservedNumbers] = useState([]);
+  const [reservedMap, setReservedMap] = useState({});
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [modal, setModal] = useState({ isOpen: false, title: '', message: '', type: 'info', onConfirm: null });
   const TICKET_PRICE = 5;
@@ -864,13 +883,16 @@ function LandingPage() {
   
   const fetchReserved = useCallback(async (silent = false) => {
     const cached = cache.get(CACHE_KEY_RESERVED);
-    if (cached) { setReservedNumbers(cached); return; }
+    if (cached) { setReservedMap(cached); return; }
     try {
-      const { data } = await supabase.from('rifa_numeros').select('numero').eq('status', 'pago');
+      const { data } = await supabase
+        .from('rifa_numeros')
+        .select('numero, status')
+        .in('status', ['pago', 'reservado']);
       if (data) {
-        const nums = data.map(r => r.numero);
-        cache.set(CACHE_KEY_RESERVED, nums, CACHE_TTL);
-        setReservedNumbers(nums);
+        const map = data.reduce((acc, r) => ({ ...acc, [r.numero]: r.status }), {});
+        cache.set(CACHE_KEY_RESERVED, map, CACHE_TTL);
+        setReservedMap(map);
       }
     } catch (_) {}
   }, []);
@@ -891,7 +913,7 @@ function LandingPage() {
   const handleConfirm = async (name, phone) => {
     try {
       // Optimistic: mark selected numbers as reserved immediately
-      setReservedNumbers(prev => [...new Set([...prev, ...selectedNumbers])]);
+      setReservedMap(prev => ({ ...prev, ...selectedNumbers.reduce((acc, n) => ({ ...acc, [n]: 'reservado' }), {}) }));
       setIsCheckoutOpen(false);
       const prevSelected = [...selectedNumbers];
       setSelectedNumbers([]);
@@ -900,7 +922,11 @@ function LandingPage() {
       const { error } = await supabase.from('rifa_numeros').insert(inserts);
       if (error) {
         // Rollback optimistic update
-        setReservedNumbers(prev => prev.filter(n => !prevSelected.includes(n)));
+        setReservedMap(prev => {
+          const next = { ...prev };
+          prevSelected.forEach(n => delete next[n]);
+          return next;
+        });
         setSelectedNumbers(prevSelected);
         setIsCheckoutOpen(true);
         setModal({ isOpen: true, title: 'Ops!', message: 'Números ocupados. Tente outros.', type: 'warning', onConfirm: () => { setModal(m => ({ ...m, isOpen: false })); cache.invalidate(CACHE_KEY_RESERVED); fetchReserved(); } });
@@ -922,7 +948,7 @@ function LandingPage() {
         <Hero /><ContextSection /><Prizes />
         <RaffleSection 
           selectedNumbers={selectedNumbers} 
-          reservedNumbers={reservedNumbers} 
+          reservedMap={reservedMap} 
           onToggleNumber={(num) => {
             const isAdding = !selectedNumbers.includes(num);
             setSelectedNumbers(prev => isAdding ? [...prev, num] : prev.filter(n => n !== num));
@@ -954,7 +980,7 @@ function LandingPage() {
               <div><label className="block font-sans font-black text-[0.65rem] mb-2 uppercase text-pop-pink tracking-widest">Nome</label><input name="nome" type="text" placeholder="Nome" required className="w-full bg-pop-beige border-2 border-pop-dark p-4 font-sans font-bold outline-none" /></div>
               <div><label className="block font-sans font-black text-[0.65rem] mb-2 uppercase text-pop-pink tracking-widest">WhatsApp</label><input name="tel" type="tel" placeholder="(00) 00000-0000" required className="w-full bg-pop-beige border-2 border-pop-dark p-4 font-sans font-bold outline-none" /></div>
               <div className="bg-pop-beige/50 border-2 border-dashed border-pop-dark/20 p-4">
-                <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto mb-4">{selectedNumbers.sort((a,b)=>a-b).map(n=>(<span key={n} className="bg-pop-orange border border-pop-dark px-2 py-1 font-black text-xs shadow-pop-xs">{n.toString().padStart(2,'0')}</span>))}</div>
+                <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto mb-4">{selectedNumbers.sort((a,b)=>a-b).map(n=>(<span key={n} className="bg-pop-pink text-white border border-pop-dark px-2 py-1 font-black text-xs shadow-pop-xs">{n.toString().padStart(2,'0')}</span>))}</div>
                 <div className="flex justify-between items-center pt-2 border-t border-pop-dark/10"><span className="font-sans font-black text-xs uppercase">Total:</span><span className="font-pop-title text-xl text-pop-pink">R$ {totalAmount}</span></div>
               </div>
               <button type="submit" className="w-full bg-[#25D366] text-white border-pop border-pop-dark shadow-pop-sm py-4 font-black uppercase active:translate-y-1 flex items-center justify-center gap-3">WhatsApp <ArrowRight size={24}/></button>
